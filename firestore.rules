@@ -1,0 +1,36 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ----------------------------------------------------
+    // USERS COLLECTION (Patient Profile & Health Details)
+    // ----------------------------------------------------
+    // - A logged-in user can only read their own document
+    // - A logged-in user can only create or update their own document
+    // - A user CANNOT read, modify, or delete another user's document
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ----------------------------------------------------
+    // APPOINTMENTS COLLECTION
+    // ----------------------------------------------------
+    // - Logged-in patients can book appointments for themselves
+    // - Logged-in patients can only view, update, or cancel their own appointments
+    match /appointments/{appointmentId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // ----------------------------------------------------
+    // DOCTORS COLLECTION
+    // ----------------------------------------------------
+    // - Allow reading doctor listings
+    // - Writes are blocked from the client app
+    match /doctors/{doctorId} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}
