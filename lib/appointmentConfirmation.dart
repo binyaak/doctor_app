@@ -386,6 +386,7 @@ class _AppointmentconfirmationState
                               _healthConditionController.text.trim(),
                           allergies: _allergiesController.text.trim(),
                           medications: _medicationsController.text.trim(),
+                          patientName: _patientName,
                         )),
                   ),
                 );

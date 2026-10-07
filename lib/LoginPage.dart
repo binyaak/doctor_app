@@ -1,5 +1,7 @@
 import 'package:doctor_app/NavigationPage.dart';
 import 'package:doctor_app/RegisterPage.dart';
+import 'package:doctor_app/doctorLoginPage.dart';
+import 'package:doctor_app/adminLoginPage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -315,8 +317,32 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                   ),
+
+                 
                 ],
               ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                   TextButton(onPressed: (){
+                    Navigator.push(context, MaterialPageRoute(builder: (context)=>DoctorLoginPage()));
+                  }, child: Text("Doctor Login")),
+
+                  const Text("|", style: TextStyle(color: Colors.grey)),
+
+                  TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const AdminLoginPage(),
+                        ),
+                      );
+                    },
+                    child: const Text("Admin Login"),
+                  ),
+                ],
+              )
             ],
           ),
         ),

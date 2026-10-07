@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:doctor_app/doctorLoginPage.dart';
 import 'package:flutter/material.dart';
 import 'loginPage.dart';
 
@@ -10,25 +11,33 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  Timer? timer;
 
   @override
   void initState() {
     super.initState();
 
-    Timer(const Duration(seconds: 3), () {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const LoginPage(),
-        ),
-      );
+   timer= Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+
+     Navigator.of(context).pushReplacement(
+  MaterialPageRoute(
+    builder: (context) => const LoginPage(),
+  ),
+);
     });
+  }
+
+  @override
+  void dispose(){
+    timer?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.blue,
+     backgroundColor: Colors.blue,
 
       body: Center(
         child: Column(
@@ -48,6 +57,9 @@ class _SplashScreenState extends State<SplashScreen> {
                 size: 65,
                 color: Colors.blue,
               ),
+          /*  child: SizedBox(
+              width: 65,height: 65,
+              child: Image.asset("asset/logo.jpg")),*/
             ),
 
             const SizedBox(height: 25),
@@ -75,6 +87,33 @@ class _SplashScreenState extends State<SplashScreen> {
 
             const CircularProgressIndicator(
               color: Colors.white,
+            ),
+
+            const SizedBox(height: 30),
+
+            // DOCTOR LOGIN BUTTON
+            // Doctors tap this to go directly to DoctorLoginPage.
+            // Patient login flow is not affected — it still loads after
+            // the 3-second timer via Navigator.pushReplacement.
+            TextButton(
+              onPressed: () {
+                timer?.cancel();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const DoctorLoginPage(),
+                  ),
+                );
+              },
+              child: const Text(
+                'Doctor? Login Here',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  decoration: TextDecoration.underline,
+                  decorationColor: Colors.white70,
+                ),
+              ),
             ),
           ],
         ),

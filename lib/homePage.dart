@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:doctor_app/DoctorDetail.dart';
@@ -212,11 +213,129 @@ class _HomePageState extends State<HomePage> {
   String userEmail = "";
   String userPhone = "";
 
+  List<Map<String, dynamic>> allDoctors = [];
+  List<Map<String, dynamic>> filteredDoctors = [];
+  List<Map<String, dynamic>> searchResults = [];
+  bool isLoadingDoctors = true;
+  String selectedCategory = "All";
+  final TextEditingController _searchController = TextEditingController();
+
+  ImageProvider _getDocAvatarProvider(String docPic) {
+    final cleanPic = docPic.trim();
+    if (cleanPic.startsWith('data:image')) {
+      try {
+        final base64Str = cleanPic.split(',').last;
+        return MemoryImage(base64Decode(base64Str));
+      } catch (_) {}
+    }
+    if (cleanPic.startsWith('http://') || cleanPic.startsWith('https://')) {
+      return NetworkImage(cleanPic);
+    }
+    if (cleanPic.isNotEmpty) {
+      return AssetImage(cleanPic);
+    }
+    return const AssetImage('asset/doc1.png');
+  }
+
   @override
   void initState() {
     super.initState();
 
     loadUserData();
+    fetchDoctors();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  // ----------------------------------------------------
+  // FETCH DOCTORS ONCE FROM FIRESTORE
+  // ----------------------------------------------------
+
+  Future<void> fetchDoctors() async {
+    final docs = await loadDoctors();
+    if (mounted) {
+      setState(() {
+        allDoctors = docs;
+        filteredDoctors = docs;
+        isLoadingDoctors = false;
+      });
+    }
+  }
+
+  // ----------------------------------------------------
+  // COMBINED FILTER (SEARCH QUERY + SELECTED CATEGORY)
+  // ----------------------------------------------------
+
+  void applyFilters() {
+    final searchLower = _searchController.text.toLowerCase().trim();
+    final catLower = selectedCategory.toLowerCase().trim();
+
+    setState(() {
+      filteredDoctors = allDoctors.where((doctor) {
+        final name =
+            (doctor['DocName'] ?? '').toString().toLowerCase();
+        final specialist =
+            (doctor['specialist'] ?? '').toString().toLowerCase();
+
+        // 1. Check category match
+        bool matchesCategory = true;
+        if (selectedCategory != "All") {
+          if (catLower == "dentist") {
+            // Matches both "Dentist" and "Dental"
+            matchesCategory = specialist.contains("dent");
+          } else if (catLower == "eye specialist") {
+            matchesCategory = specialist.contains("eye") ||
+                specialist.contains("ophthalm");
+          } else {
+            matchesCategory = specialist.contains(catLower);
+          }
+        }
+
+        // 2. Check search query match
+        bool matchesSearch = true;
+        if (searchLower.isNotEmpty) {
+          matchesSearch = name.contains(searchLower) ||
+              specialist.contains(searchLower);
+        }
+
+        return matchesCategory && matchesSearch;
+      }).toList();
+    });
+  }
+
+  void filterDoctors(String query) {
+    final searchLower = query.toLowerCase().trim();
+    setState(() {
+      if (searchLower.isEmpty) {
+        searchResults = [];
+      } else {
+        searchResults = allDoctors.where((doctor) {
+          final name =
+              (doctor['DocName'] ?? '').toString().toLowerCase();
+          final specialist =
+              (doctor['specialist'] ?? '').toString().toLowerCase();
+
+          return name.contains(searchLower) ||
+              specialist.contains(searchLower);
+        }).toList();
+      }
+    });
+    applyFilters();
+  }
+
+  void selectCategory(String category) {
+    setState(() {
+      if (selectedCategory == category) {
+        selectedCategory = "All"; // Toggle off if already selected
+      } else {
+        selectedCategory = category;
+      }
+    });
+    applyFilters();
   }
 
   // ----------------------------------------------------
@@ -490,6 +609,8 @@ class _HomePageState extends State<HomePage> {
                   const EdgeInsets.all(8.0),
 
               child: TextField(
+                controller: _searchController,
+                onChanged: filterDoctors,
 
                 decoration:
                     InputDecoration(
@@ -517,16 +638,31 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
 
-                  suffixIcon:
-                      const Icon(
-                    Icons.filter_alt,
-                    color: Color.fromARGB(
-                      255,
-                      153,
-                      149,
-                      149,
-                    ),
-                  ),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(
+                            Icons.clear,
+                            color: Color.fromARGB(
+                              255,
+                              153,
+                              149,
+                              149,
+                            ),
+                          ),
+                          onPressed: () {
+                            _searchController.clear();
+                            filterDoctors('');
+                          },
+                        )
+                      : const Icon(
+                          Icons.filter_alt,
+                          color: Color.fromARGB(
+                            255,
+                            153,
+                            149,
+                            149,
+                          ),
+                        ),
 
                   border:
                       OutlineInputBorder(
@@ -538,6 +674,134 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
+
+            // ==========================================
+            // SEARCH RESULTS (SHOWN ONLY WHEN SEARCHING)
+            // ==========================================
+            if (_searchController.text.trim().isNotEmpty) ...[
+              if (searchResults.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 8.0,
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      "No doctors found",
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  itemCount: searchResults.length,
+                  itemBuilder: (context, index) {
+                    final doc = searchResults[index];
+                    final String docPic =
+                        doc['docPic'] ?? 'asset/doc1.png';
+                    final String docName = doc['DocName'] ?? '';
+                    final String specialist =
+                        doc['specialist'] ?? '';
+                    final String rating =
+                        doc['Rating']?.toString() ?? '0';
+
+                    return Card(
+                      margin: const EdgeInsets.symmetric(
+                        vertical: 4.0,
+                        horizontal: 4.0,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: const BorderSide(
+                          color: Color.fromARGB(255, 230, 230, 230),
+                        ),
+                      ),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => Doctordetail(
+                                doctor: doc,
+                              ),
+                            ),
+                          );
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(10.0),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 24,
+                                backgroundImage: _getDocAvatarProvider(docPic),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      docName,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight:
+                                            FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      specialist,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.blueAccent,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.star,
+                                          color: CupertinoColors
+                                              .systemYellow,
+                                          size: 13,
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          rating,
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight:
+                                                FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.arrow_forward_ios,
+                                size: 14,
+                                color: Colors.grey,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              const SizedBox(height: 10),
+            ],
 
             // ==========================================
             // CAROUSEL
@@ -556,7 +820,7 @@ class _HomePageState extends State<HomePage> {
 
                 autoPlayInterval:
                     const Duration(
-                  seconds: 3,
+                  seconds: 1,
                 ),
 
                 onPageChanged:
@@ -728,24 +992,17 @@ class _HomePageState extends State<HomePage> {
             // ==========================================
 
             Column(
-
               children: [
-
                 Padding(
                   padding:
                       const EdgeInsets.all(
                     8.0,
                   ),
-
                   child: Row(
-
                     children: [
-
                       const Expanded(
-
                         child: Text(
                           "Categories",
-
                           style:
                               TextStyle(
                             fontWeight:
@@ -753,64 +1010,68 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
                       ),
-
-                      const Text(
-                        "See All",
-
-                        style:
-                            TextStyle(
-                          color: Colors.blue,
-                          fontSize: 10,
+                      InkWell(
+                        onTap: () {
+                          selectCategory("All");
+                        },
+                        child: Text(
+                          selectedCategory == "All" ? "See All" : "Clear Filter",
+                          style:
+                              const TextStyle(
+                            color: Colors.blue,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-
                 SingleChildScrollView(
-
                   scrollDirection:
                       Axis.horizontal,
-
                   child: Padding(
-
                     padding:
                         const EdgeInsets.all(
                       8.0,
                     ),
-
                     child: Row(
-
                       children: [
-
                         categoryItem(
-                          "asset/cardioo-removebg-preview.png",
-                          "Cardiologist",
+                          image: "asset/cardioo-removebg-preview.png",
+                          title: "Cardiologist",
+                          isSelected: selectedCategory == "Cardiologist",
+                          onTap: () => selectCategory("Cardiologist"),
                         ),
-
                         categoryItem(
-                          "asset/dental-removebg-preview.png",
-                          "Dentist",
+                          image: "asset/dental-removebg-preview.png",
+                          title: "Dentist",
+                          isSelected: selectedCategory == "Dentist",
+                          onTap: () => selectCategory("Dentist"),
                         ),
-
                         categoryItem(
-                          "asset/pediatric-removebg-preview.png",
-                          "Pediatrician",
+                          image: "asset/pediatric-removebg-preview.png",
+                          title: "Pediatrician",
+                          isSelected: selectedCategory == "Pediatrician",
+                          onTap: () => selectCategory("Pediatrician"),
                         ),
-
                         categoryItem(
-                          "asset/nuero-removebg-preview.png",
-                          "Neurologist",
+                          image: "asset/nuero-removebg-preview.png",
+                          title: "Neurologist",
+                          isSelected: selectedCategory == "Neurologist",
+                          onTap: () => selectCategory("Neurologist"),
                         ),
-
                         categoryItem(
-                          "asset/eye-removebg-preview.png",
-                          "Eye specialist",
+                          image: "asset/eye-removebg-preview.png",
+                          title: "Eye specialist",
+                          isSelected: selectedCategory == "Eye specialist",
+                          onTap: () => selectCategory("Eye specialist"),
                         ),
-
                         categoryItem(
-                          "asset/ortho-removebg-preview.png",
-                          "Orthopedic",
+                          image: "asset/ortho-removebg-preview.png",
+                          title: "Orthopedic",
+                          isSelected: selectedCategory == "Orthopedic",
+                          onTap: () => selectCategory("Orthopedic"),
                         ),
                       ],
                     ),
@@ -846,13 +1107,17 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
 
-                  const Text(
-                    "See All",
-
-                    style:
-                        TextStyle(
-                      color: Colors.blue,
-                      fontSize: 10,
+                  InkWell(
+                    onTap: () {
+                      _searchController.clear();
+                      selectCategory("All");
+                    },
+                    child: const Text(
+                      "See All",
+                      style: TextStyle(
+                        color: Colors.blue,
+                        fontSize: 10,
+                      ),
                     ),
                   ),
                 ],
@@ -860,71 +1125,47 @@ class _HomePageState extends State<HomePage> {
             ),
 
             // ==========================================
-            // DOCTORS FROM FIRESTORE
+            // DOCTORS LIST (FILTERED LOCALLY)
             // ==========================================
 
-            FutureBuilder<
-                List<Map<String, dynamic>>>(
-              
-              future: loadDoctors(),
-
-              builder:
-                  (context, snapshot) {
-
-                // LOADING
-                if (snapshot.connectionState ==
-                    ConnectionState.waiting) {
-
-                  return const Center(
-                    child:
-                        CircularProgressIndicator(),
-                  );
-                }
-
-                // ERROR
-                if (snapshot.hasError) {
-
-                  return const Center(
-                    child: Text(
-                      "Error loading doctors",
+            if (isLoadingDoctors)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(20.0),
+                  child: CircularProgressIndicator(),
+                ),
+              )
+            else if (filteredDoctors.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(20.0),
+                  child: Text(
+                    "No doctors found",
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.grey,
                     ),
-                  );
-                }
+                  ),
+                ),
+              )
+            else
+              ListView.builder(
 
-                final doctors =
-                    snapshot.data ?? [];
+                itemCount:
+                    filteredDoctors.length,
 
-                // EMPTY
-                if (doctors.isEmpty) {
+                shrinkWrap:
+                    true,
 
-                  return const Center(
-                    child: Text(
-                      "No doctors found",
-                    ),
-                  );
-                }
+                physics:
+                    const NeverScrollableScrollPhysics(),
 
-                // ====================================
-                // LIST VIEW BUILDER
-                // ====================================
+                itemBuilder:
+                    (context, index) {
 
-                return ListView.builder(
-
-                  itemCount:
-                      doctors.length,
-
-                  shrinkWrap:
-                      true,
-
-                  physics:
-                      const NeverScrollableScrollPhysics(),
-
-                  itemBuilder:
-                      (context, index) {
-
-                    // GET CURRENT DOCTOR
-                    final Doc =
-                        doctors[index];
+                  // GET CURRENT DOCTOR
+                  final Doc =
+                      filteredDoctors[index];
 
                     return Padding(
 
@@ -979,13 +1220,8 @@ class _HomePageState extends State<HomePage> {
 
                                   // DOCTOR IMAGE
                                   CircleAvatar(
-
                                     radius: 50,
-
-                                    backgroundImage:
-                                        AssetImage(
-                                      Doc['docPic'],
-                                    ),
+                                    backgroundImage: _getDocAvatarProvider(Doc['docPic']?.toString() ?? ''),
                                   ),
 
                                   const SizedBox(
@@ -1249,9 +1485,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                     );
                   },
-                );
-              },
-            ),
+                ),
           ],
         ),
       ),
@@ -1263,50 +1497,59 @@ class _HomePageState extends State<HomePage> {
 // CATEGORY ITEM
 // ======================================================
 
-Widget categoryItem(
-  String image,
-  String title,
-) {
-
+Widget categoryItem({
+  required String image,
+  required String title,
+  required bool isSelected,
+  required VoidCallback onTap,
+}) {
   return Padding(
-    padding:
-        const EdgeInsets.only(
+    padding: const EdgeInsets.only(
       right: 10,
     ),
-
-    child: Column(
-
-      children: [
-
-        SizedBox(
-          width: 60,
-
-          child: Card(
-
-            child: Padding(
-
-              padding:
-                  const EdgeInsets.all(
-                8.0,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Column(
+        children: [
+          SizedBox(
+            width: 60,
+            child: Card(
+              color: isSelected
+                  ? const Color.fromARGB(255, 214, 237, 255)
+                  : Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: BorderSide(
+                  color: isSelected
+                      ? const Color.fromARGB(255, 9, 115, 202)
+                      : const Color.fromARGB(255, 230, 230, 230),
+                  width: isSelected ? 1.5 : 1,
+                ),
               ),
-
-              child: Image.asset(
-                image,
-                fit: BoxFit.contain,
+              child: Padding(
+                padding: const EdgeInsets.all(
+                  8.0,
+                ),
+                child: Image.asset(
+                  image,
+                  fit: BoxFit.contain,
+                ),
               ),
             ),
           ),
-        ),
-
-        Text(
-          title,
-
-          style:
-              const TextStyle(
-            fontSize: 9,
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              color: isSelected
+                  ? const Color.fromARGB(255, 9, 115, 202)
+                  : Colors.black,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     ),
   );
 }
