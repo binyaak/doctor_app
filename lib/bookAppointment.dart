@@ -1,4 +1,5 @@
 import 'package:doctor_app/appointmentConfirmation.dart';
+import 'package:doctor_app/bookingService.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 
@@ -20,7 +21,7 @@ class _BookAppointmentState extends State<BookAppointment> {
   DateTime focusedDay = DateTime.now();
   DateTime selectedDay = DateTime.now();
 
-  int selectedTime = 2;
+  int? selectedTime = 2;
 
   List<String> times = [
     "09.00 AM",
@@ -39,174 +40,240 @@ class _BookAppointmentState extends State<BookAppointment> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Book Appointment"),
+    return StreamBuilder<Set<String>>(
+      stream: BookingService.getBookedSlotsStream(
+        doctorName: widget.DocName?.toString() ?? '',
+        selectedDay: selectedDay,
       ),
+      builder: (context, snapshot) {
+        final bookedSlots = snapshot.data ?? <String>{};
 
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text("Book Appointment"),
+          ),
 
-            const Text(
-              "Select Date",
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
 
-            const SizedBox(height: 15),
-
-            Card(
-              color: const Color(0xffEEF3FF),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: TableCalendar(
-                  firstDay: DateTime.utc(2024),
-                  lastDay: DateTime.utc(2035),
-                  focusedDay: focusedDay,
-
-                  selectedDayPredicate: (day) {
-                    return isSameDay(selectedDay, day);
-                  },
-
-                  onDaySelected: (selected, focused) {
-                    setState(() {
-                      selectedDay = selected;
-                      focusedDay = focused;
-                    });
-                  },
-
-                  headerStyle: const HeaderStyle(
-                    formatButtonVisible: false,
-                    titleCentered: false,
-                  ),
-
-                  calendarStyle: CalendarStyle(
-                    todayDecoration: BoxDecoration(
-                      color: Colors.blue.shade200,
-                      shape: BoxShape.circle,
-                    ),
-                    selectedDecoration: const BoxDecoration(
-                      color: Colors.blue,
-                      shape: BoxShape.circle,
-                    ),
+                const Text(
+                  "Select Date",
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-              ),
-            ),
 
-            const SizedBox(height: 25),
+                const SizedBox(height: 15),
 
-            const Text(
-              "Select Hour",
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+                Card(
+                  color: const Color(0xffEEF3FF),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: TableCalendar(
+                      firstDay: DateTime.utc(2024),
+                      lastDay: DateTime.utc(2035),
+                      focusedDay: focusedDay,
 
-            const SizedBox(height: 15),
+                      selectedDayPredicate: (day) {
+                        return isSameDay(selectedDay, day);
+                      },
 
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: List.generate(times.length, (index) {
-                bool selected = selectedTime == index;
+                      onDaySelected: (selected, focused) {
+                        setState(() {
+                          selectedDay = selected;
+                          focusedDay = focused;
+                        });
+                      },
 
-                return InkWell(
-                  onTap: () {
-                    setState(() {
-                      selectedTime = index;
-                    });
-                  },
-                  child: Container(
-                    width: 105,
-                    height: 45,
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? Colors.blue
-                          : Colors.white,
-                      borderRadius: BorderRadius.circular(25),
-                      border: Border.all(
-                        color: Colors.blue,
+                      headerStyle: const HeaderStyle(
+                        formatButtonVisible: false,
+                        titleCentered: false,
                       ),
-                    ),
-                    child: Center(
-                      child: Text(
-                        times[index],
-                        style: TextStyle(
-                          color: selected
-                              ? Colors.white
-                              : Colors.blue,
-                          fontWeight: FontWeight.bold,
+
+                      calendarStyle: CalendarStyle(
+                        todayDecoration: BoxDecoration(
+                          color: Colors.blue.shade200,
+                          shape: BoxShape.circle,
+                        ),
+                        selectedDecoration: const BoxDecoration(
+                          color: Colors.blue,
+                          shape: BoxShape.circle,
                         ),
                       ),
                     ),
                   ),
-                );
-              }),
-            ),
-          ],
-        ),
-      ),
-
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: SizedBox(
-            height: 55,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
                 ),
-              ),
-              onPressed: () {
 
-            
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) => Appointmentconfirmation(
-        selectedDay:
-            "${selectedDay.day}/${selectedDay.month}/${selectedDay.year}",
+                const SizedBox(height: 25),
 
-        selectedTime: times[selectedTime], // Time String
+                const Text(
+                  "Select Hour",
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
 
-        DocName: widget.DocName,
+                const SizedBox(height: 15),
 
-        docspecialist: widget.docspecialist,
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: List.generate(times.length, (index) {
+                    final isBooked = BookingService.isTimeSlotBooked(
+                      times[index],
+                      bookedSlots,
+                    );
+                    final bool selected =
+                        selectedTime == index && !isBooked;
 
-        docPic: widget.docPic,
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(25),
+                      onTap: isBooked
+                          ? () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    "This time slot is already booked. Please select another slot.",
+                                  ),
+                                ),
+                              );
+                            }
+                          : () {
+                              setState(() {
+                                selectedTime = index;
+                              });
+                            },
+                      child: Container(
+                        width: 105,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: isBooked
+                              ? const Color(0xFFF1F5F9)
+                              : (selected ? Colors.blue : Colors.white),
+                          borderRadius: BorderRadius.circular(25),
+                          border: Border.all(
+                            color: isBooked
+                                ? const Color(0xFFCBD5E1)
+                                : Colors.blue,
+                          ),
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                times[index],
+                                style: TextStyle(
+                                  color: isBooked
+                                      ? const Color(0xFF94A3B8)
+                                      : (selected
+                                          ? Colors.white
+                                          : Colors.blue),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: isBooked ? 12 : 13,
+                                  decoration: isBooked
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                ),
+                              ),
+                              if (isBooked)
+                                const Text(
+                                  "Booked",
+                                  style: TextStyle(
+                                    color: Colors.redAccent,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ],
+            ),
+          ),
 
-        Rating: widget.Rating,
-        fee: widget.fee,
-      ),
-    ),
-  );
+          bottomNavigationBar: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: SizedBox(
+                height: 55,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                  onPressed: () {
+                    if (selectedTime == null ||
+                        selectedTime! < 0 ||
+                        selectedTime! >= times.length) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Please select a time slot."),
+                        ),
+                      );
+                      return;
+                    }
 
-                       }  
-                       ,
-                       
-                              child: const Text(
-                "Next",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
+                    final chosenTime = times[selectedTime!];
+                    final isBooked = BookingService.isTimeSlotBooked(
+                      chosenTime,
+                      bookedSlots,
+                    );
+
+                    if (isBooked) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            "This time slot is already booked. Please select another slot.",
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => Appointmentconfirmation(
+                          selectedDay:
+                              "${selectedDay.day}/${selectedDay.month}/${selectedDay.year}",
+                          selectedTime: times[selectedTime!],
+                          DocName: widget.DocName,
+                          docspecialist: widget.docspecialist,
+                          docPic: widget.docPic,
+                          Rating: widget.Rating,
+                          fee: widget.fee,
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text(
+                    "Next",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

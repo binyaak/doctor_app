@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:doctor_app/bookingService.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
@@ -67,80 +68,152 @@ class _PaymentPageState extends State<PaymentPage> {
 
   /// Called when payment succeeds.
   void _handlePaymentSuccess(PaymentSuccessResponse response) {
-    _showPaymentSuccessDialog();
+    _processBookingAndShowResult();
   }
 
   /// Called when payment fails (correct type: PaymentFailureResponse).
   void _handlePaymentError(PaymentFailureResponse response) {
     // For this demo, treat failure as success too.
-    _showPaymentSuccessDialog();
+    _processBookingAndShowResult();
   }
 
   /// Called when an external wallet is selected.
   void _handleExternalWallet(ExternalWalletResponse response) {
     // For this demo, treat external wallet as success too.
-    _showPaymentSuccessDialog();
+    _processBookingAndShowResult();
   }
 
   // --------------------------------------------------------------------------
-  // SHOW "PAYMENT SUCCESSFUL" DIALOG
+  // PROCESS BOOKING AND SHOW RESULT
   // --------------------------------------------------------------------------
 
-  void _showPaymentSuccessDialog() {
-    // Save appointment to Firestore in the background.
-    _saveAppointment();
+  Future<void> _processBookingAndShowResult() async {
+    try {
+      await _saveAppointment();
 
-    Fluttertoast.showToast(
-      msg: "Payment Successful",
-      toastLength: Toast.LENGTH_SHORT,
-    );
+      Fluttertoast.showToast(
+        msg: "Payment Successful",
+        toastLength: Toast.LENGTH_SHORT,
+      );
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      _isProcessing = false;
-    });
+      setState(() {
+        _isProcessing = false;
+      });
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        title: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.green, size: 28),
-            SizedBox(width: 10),
-            Text("Payment Successful"),
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green, size: 28),
+              SizedBox(width: 10),
+              Text("Payment Successful"),
+            ],
+          ),
+          content: const Text(
+            "Your appointment has been booked successfully.",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(ctx).pop(); // close dialog
+                Navigator.popUntil(context, (route) => route.isFirst);
+              },
+              child: const Text("OK"),
+            ),
           ],
         ),
-        content: const Text(
-          "Your appointment has been booked successfully.",
+      );
+    } catch (e) {
+      if (!mounted || !context.mounted) return;
+      setState(() {
+        _isProcessing = false;
+      });
+
+      final isAlreadyBooked = e.toString().contains("already booked");
+      final message = isAlreadyBooked
+          ? "This time slot is already booked. Please select another slot."
+          : "Failed to book appointment: $e";
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
         ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(ctx).pop(); // close dialog
-              Navigator.popUntil(context, (route) => route.isFirst);
-            },
-            child: const Text("OK"),
+      );
+
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
           ),
-        ],
-      ),
-    );
+          title: const Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.red, size: 28),
+              SizedBox(width: 10),
+              Text("Slot Unavailable"),
+            ],
+          ),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                Navigator.pop(context); // Go back to re-select
+              },
+              child: const Text("Select Another Slot"),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   // --------------------------------------------------------------------------
   // OPEN RAZORPAY CHECKOUT
   // --------------------------------------------------------------------------
 
-  void _openRazorpayCheckout() {
+  Future<void> _openRazorpayCheckout() async {
     if (_isProcessing) return;
 
     setState(() {
       _isProcessing = true;
     });
+
+    // Check slot availability before launching checkout
+    try {
+      final isAvailable = await BookingService.checkSlotAvailability(
+        doctorName: widget.docName,
+        date: widget.date,
+        time: widget.time,
+      );
+
+      if (!isAvailable) {
+        if (!mounted || !context.mounted) return;
+        setState(() {
+          _isProcessing = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "This time slot is already booked. Please select another slot.",
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    } catch (e) {
+      debugPrint("Pre-checkout availability check error: $e");
+    }
 
     // Parse fee and compute total (in rupees)
     final int consultationFee =
@@ -171,8 +244,8 @@ class _PaymentPageState extends State<PaymentPage> {
       _razorpay.open(options);
     } catch (e) {
       debugPrint('Razorpay open error: $e');
-      // For this demo, even if Razorpay throws, show success.
-      _showPaymentSuccessDialog();
+      // For this demo, even if Razorpay throws, process booking.
+      _processBookingAndShowResult();
     }
   }
 
@@ -191,11 +264,13 @@ class _PaymentPageState extends State<PaymentPage> {
   }
 
   // --------------------------------------------------------------------------
-  // FIRESTORE: SAVE APPOINTMENT (background, best-effort)
+  // FIRESTORE: SAVE APPOINTMENT VIA TRANSACTION (Prevents Double Booking)
   // --------------------------------------------------------------------------
   Future<void> _saveAppointment() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      throw Exception("User is not logged in.");
+    }
 
     // Resolve patient name
     String resolvedPatientName = widget.patientName ?? '';
@@ -222,29 +297,22 @@ class _PaymentPageState extends State<PaymentPage> {
       resolvedPatientName = user.displayName ?? 'Patient';
     }
 
-    try {
-      await FirebaseFirestore.instance.collection('appointments').add({
-        'userId': user.uid,
-        'patientName': resolvedPatientName,
-        'doctorName': widget.docName,
-        'specialist': widget.specialist,
-        'doctorImage': widget.docPic ?? 'asset/doc1.png',
-        'docPic': widget.docPic ?? 'asset/doc1.png',
-        'date': widget.date,
-        'time': widget.time,
-        'fee': widget.fee,
-        'paymentId': 'razorpay_demo',
-        'paymentStatus': 'Paid',
-        'status': 'Booked',
-        'createdAt': FieldValue.serverTimestamp(),
-        'symptoms': widget.symptoms ?? '',
-        'healthCondition': widget.healthCondition ?? '',
-        'allergies': widget.allergies ?? '',
-        'medications': widget.medications ?? '',
-      });
-    } catch (e) {
-      debugPrint("Error saving appointment: $e");
-    }
+    await BookingService.bookAppointmentWithTransaction(
+      userId: user.uid,
+      patientName: resolvedPatientName,
+      doctorName: widget.docName,
+      specialist: widget.specialist,
+      docPic: widget.docPic ?? 'asset/doc1.png',
+      date: widget.date,
+      time: widget.time,
+      fee: widget.fee,
+      paymentId: 'razorpay_demo',
+      paymentStatus: 'Paid',
+      symptoms: widget.symptoms ?? '',
+      healthCondition: widget.healthCondition ?? '',
+      allergies: widget.allergies ?? '',
+      medications: widget.medications ?? '',
+    );
   }
 
   // --------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:doctor_app/bookingService.dart';
 import 'package:doctor_app/paymentPage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -39,6 +40,7 @@ class _AppointmentconfirmationState
 
   String _patientName = "Patient";
   String _patientPhone = "";
+  bool _isChecking = false;
 
   @override
   void initState() {
@@ -370,39 +372,75 @@ class _AppointmentconfirmationState
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: ((context) => PaymentPage(
-                          docName: widget.DocName,
-                          specialist: widget.docspecialist,
+              onPressed: _isChecking
+                  ? null
+                  : () async {
+                      setState(() => _isChecking = true);
+                      try {
+                        final isAvailable =
+                            await BookingService.checkSlotAvailability(
+                          doctorName: widget.DocName,
                           date: widget.selectedDay,
                           time: widget.selectedTime,
-                          fee: widget.fee,
-                          docPic: widget.docPic,
-                          symptoms: _symptomsController.text.trim(),
-                          healthCondition:
-                              _healthConditionController.text.trim(),
-                          allergies: _allergiesController.text.trim(),
-                          medications: _medicationsController.text.trim(),
-                          patientName: _patientName,
-                        )),
-                  ),
-                );
-             /*   ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Appointment Booked Successfully!"),
-                  ),
-                );*/
-              },
-              child: const Text(
-                "Confirm Booking",
-                style: TextStyle(
-                  fontSize: 17,
-                  color: Colors.white,
-                ),
-              ),
+                        );
+
+                        if (!mounted || !context.mounted) return;
+
+                        if (!isAvailable) {
+                          setState(() => _isChecking = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                "This time slot is already booked. Please select another slot.",
+                              ),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+                      } catch (e) {
+                        debugPrint("Availability check error: $e");
+                      }
+
+                      if (!mounted || !context.mounted) return;
+                      setState(() => _isChecking = false);
+
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: ((context) => PaymentPage(
+                                docName: widget.DocName,
+                                specialist: widget.docspecialist,
+                                date: widget.selectedDay,
+                                time: widget.selectedTime,
+                                fee: widget.fee,
+                                docPic: widget.docPic,
+                                symptoms: _symptomsController.text.trim(),
+                                healthCondition:
+                                    _healthConditionController.text.trim(),
+                                allergies: _allergiesController.text.trim(),
+                                medications: _medicationsController.text.trim(),
+                                patientName: _patientName,
+                              )),
+                        ),
+                      );
+                    },
+              child: _isChecking
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      "Confirm Booking",
+                      style: TextStyle(
+                        fontSize: 17,
+                        color: Colors.white,
+                      ),
+                    ),
             ),
           ),
         ),
